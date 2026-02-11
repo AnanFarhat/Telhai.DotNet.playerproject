@@ -3,6 +3,7 @@ using Microsoft.Win32;
 using System.IO;
 using System.Text.Json;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -58,6 +59,9 @@ namespace Telhai.DotNet.PlayerProject
         // --- EMPTY PLACEHOLDERS TO MAKE IT BUILD ---
         private void BtnPlay_Click(object sender, RoutedEventArgs e)
         {
+            if(sender is Button btn){
+                btn.Background = Brushes.LightGreen;
+            }
             mediaPlayer.Play();
             timer.Start();
             txtStatus.Text = "Playing";
@@ -119,7 +123,8 @@ namespace Telhai.DotNet.PlayerProject
 
         private void SaveLibrary()
         {
-            string json = JsonSerializer.Serialize(library);
+            var options =new JsonSerializerOptions { WriteIndented = true };
+            string json = JsonSerializer.Serialize(library,options);
             File.WriteAllText(FILE_NAME, json);
         }
 
@@ -163,6 +168,32 @@ namespace Telhai.DotNet.PlayerProject
             }
         
          }
+        private void Settings_Click(object sender, RoutedEventArgs e)
+        {
+            //1 create the settings window instance
+            Settings settingsWin = new Settings();
+
+            // 2 subscribe/register to the OnScanCompleted event
+            settingsWin.OnScanCompleted += SettingsWin_OnScanCompleted;
+            
+            settingsWin.ShowDialog();
+        }
+
+
+        private void SettingsWin_OnScanCompleted(List<MusicTrack> eventDateList)
+        {
+            foreach (var track in eventDateList)
+            {
+                // Prevent duplicates based on FilePath
+                if (!library.Any(x => x.FilePath == track.FilePath))
+                {
+                    library.Add(track);
+                }
+            }
+
+            UpdateLibraryUI();
+            SaveLibrary();
+        }
 
     }
 }
