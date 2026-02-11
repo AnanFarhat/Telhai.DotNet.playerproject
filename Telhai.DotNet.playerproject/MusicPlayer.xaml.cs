@@ -27,6 +27,9 @@ namespace Telhai.DotNet.PlayerProject
         private readonly ItunesService _itunesService = new ItunesService();
         private CancellationTokenSource? _itunesCts;
         private readonly MetadataStorageService _storage = new MetadataStorageService();
+        private DispatcherTimer _coverTimer = new DispatcherTimer();
+        private List<string> _currentCoverImages = new List<string>();
+        private int _coverIndex = 0;
 
 
 
@@ -43,6 +46,9 @@ namespace Telhai.DotNet.PlayerProject
             txtArtist.Text = "-";
             txtAlbum.Text = "-";
             txtFilePath.Text = "";
+            _coverTimer.Interval = TimeSpan.FromSeconds(3);
+            _coverTimer.Tick += CoverTimer_Tick;
+
         }
 
         private void MusicPlayer_Loaded(object sender, RoutedEventArgs e)
@@ -83,6 +89,8 @@ namespace Telhai.DotNet.PlayerProject
         {
             mediaPlayer.Pause();
             txtStatus.Text = "Paused";
+            _coverTimer.Stop();
+
         }
 
 
@@ -92,6 +100,8 @@ namespace Telhai.DotNet.PlayerProject
             timer.Stop();
             sliderProgress.Value = 0;
             txtStatus.Text = "Stopped";
+            _coverTimer.Stop();
+
         }
 
         private void SliderVolume_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -169,6 +179,8 @@ namespace Telhai.DotNet.PlayerProject
 
             SetDefaultMetadata(track);   // resets artist/album + default cover
             SetPlayingStatus(track);     // sets status to Playing...
+            StartCoverSlideshow(track);
+            ShowMetadataFromJsonIfExists(track);
 
             _ = LoadItunesMetadataAsync(track); // starts API call immediately
         }
@@ -290,13 +302,25 @@ namespace Telhai.DotNet.PlayerProject
                     return;
                 }
                 // ✅ save to JSON cache (key = FilePath)
-                _storage.Save(track.FilePath, new SongMetadata
-                {
-                    Artist = info.ArtistName ?? "-",
-                    Album = info.AlbumName ?? "-",
-                    ApiArtworkUrl = info.ArtworkUrl,
-                    TrackName = info.TrackName ?? track.Title
-                });
+                // ✅ merge: keep existing data (especially Images) and update only API fields
+                var all = _storage.LoadAll();
+
+                if (!all.TryGetValue(track.FilePath, out var meta))
+                    meta = new SongMetadata();
+
+                // אם המשתמש ערך שם שיר בחלון העריכה - לא נדרוס אותו
+                if (string.IsNullOrWhiteSpace(meta.TrackName))
+                    meta.TrackName = info.TrackName ?? track.Title;
+
+                // תמיד נעדכן Artist/Album/Cover מה-API
+                meta.Artist = info.ArtistName ?? "-";
+                meta.Album = info.AlbumName ?? "-";
+                meta.ApiArtworkUrl = info.ArtworkUrl;
+
+                // שמירה חזרה (כולל Images שנשמרו)
+                all[track.FilePath] = meta;
+                _storage.SaveAll(all);
+
 
 
                 // update UI
@@ -340,6 +364,93 @@ namespace Telhai.DotNet.PlayerProject
             var item = ItemsControl.ContainerFromElement(lstLibrary, e.OriginalSource as DependencyObject) as ListBoxItem;
             if (item != null)
                 lstLibrary.SelectedItem = item.DataContext;
+        }
+        private void BtnEdit_Click(object sender, RoutedEventArgs e)
+        {
+            if (lstLibrary.SelectedItem is not MusicTrack track)
+                return;
+
+            var vm = new EditSongViewModel
+            {
+                FilePath = track.FilePath,
+                Title = track.Title
+            };
+
+            // טען נתונים מה-JSON אם קיימים
+            var all = _storage.LoadAll();
+            if (all.TryGetValue(track.FilePath, out var saved))
+            {
+                vm.Title = saved.TrackName ?? track.Title;
+                vm.Artist = saved.Artist ?? "-";
+                vm.Album = saved.Album ?? "-";
+
+                if (!string.IsNullOrEmpty(saved.ApiArtworkUrl))
+                    vm.CoverImage = new System.Windows.Media.Imaging.BitmapImage(
+                        new Uri(saved.ApiArtworkUrl));
+                foreach (var img in saved.Images)
+                    vm.ImagePaths.Add(img);
+
+            }
+
+            var window = new EditSongWindow(vm);
+            window.Owner = this;
+            window.ShowDialog();
+        }
+        private void CoverTimer_Tick(object? sender, EventArgs e)
+        {
+            if (_currentCoverImages == null || _currentCoverImages.Count == 0)
+                return;
+
+            _coverIndex++;
+
+            if (_coverIndex >= _currentCoverImages.Count)
+                _coverIndex = 0;
+
+            try
+            {
+                imgCover.Source = new BitmapImage(
+                    new Uri(_currentCoverImages[_coverIndex], UriKind.Absolute)
+                );
+            }
+            catch
+            {
+                // אם תמונה לא נטענת – דלג
+            }
+        }
+        private void StartCoverSlideshow(MusicTrack track)
+        {
+            _coverTimer.Stop();
+            _coverIndex = 0;
+            _currentCoverImages.Clear();
+
+            var all = _storage.LoadAll();
+            if (all.TryGetValue(track.FilePath, out var meta))
+            {
+                // 1) אם יש תמונות שהמשתמש הוסיף בחלון העריכה
+                if (meta.Images != null && meta.Images.Count > 0)
+                {
+                    _currentCoverImages.AddRange(meta.Images);
+                }
+                // 2) אחרת - נשתמש בתמונת ה-API אם קיימת
+                else if (!string.IsNullOrEmpty(meta.ApiArtworkUrl))
+                {
+                    // נשמור כאן URL כ"single item" כדי שהטיימר לא יחליף כלום
+                    _currentCoverImages.Add(meta.ApiArtworkUrl);
+                }
+            }
+
+            // אם יש לפחות 2 תמונות - נריץ לולאה
+            if (_currentCoverImages.Count >= 2)
+            {
+                imgCover.Source = new BitmapImage(new Uri(_currentCoverImages[0], UriKind.Absolute));
+                _coverTimer.Start();
+                txtStatus.Text = "Playing... (slideshow)";
+            }
+            else
+            {
+                // 0 או 1 תמונה: אין מה להחליף
+                _coverTimer.Stop();
+            }
         }
 
 
