@@ -2,17 +2,14 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
-using System.Text;
+
 using System.Text.Json;
 using System.Threading.Tasks;
 using Telhai.DotNet.PlayerProject.Models;
-using System;
-using System.Linq;
-using System.Net.Http;
-using System.Text.Json;
+
 using System.Threading;
-using System.Threading.Tasks;
-using Telhai.DotNet.PlayerProject.Models;
+
+
 
 namespace Telhai.DotNet.PlayerProject.Services
 {
